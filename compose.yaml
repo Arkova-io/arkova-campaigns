@@ -1,0 +1,85 @@
+name: arkova-campaigns-pilot
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_DB: keila
+      POSTGRES_USER: keila
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keila -d keila"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - keila-postgres:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  mailpit:
+    image: axllent/mailpit:v1.30.7@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+      - edge
+
+  keila:
+    image: arkova/keila:0.30.2-arm64
+    build:
+      context: .
+      dockerfile: Dockerfile.keila-arm64
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    environment:
+      DB_URL: postgres://keila:${POSTGRES_PASSWORD}@postgres/keila
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}
+      URL_HOST: localhost
+      URL_PORT: ${KEILA_PORT:-4000}
+      URL_SCHEMA: http
+      KEILA_USER: ${KEILA_USER:-admin@arkova.local}
+      KEILA_PASSWORD: ${KEILA_PASSWORD:?Set KEILA_PASSWORD in .env}
+      MAILER_TYPE: smtp
+      MAILER_SMTP_HOST: mailpit
+      MAILER_SMTP_PORT: 1025
+      MAILER_SMTP_FROM_EMAIL: keila@arkova.local
+      MAILER_SMTP_USER: keila
+      MAILER_SMTP_PASSWORD: ${MAILPIT_PASSWORD:?Set MAILPIT_PASSWORD in .env}
+      MAILER_ENABLE_SSL: "false"
+      MAILER_ENABLE_STARTTLS: "false"
+      DISABLE_REGISTRATION: "true"
+      DISABLE_UPDATE_CHECKS: "true"
+      DISABLE_TZDATA_UPDATES: "true"
+      USER_CONTENT_DIR: /opt/app/user-content
+    ports:
+      - "127.0.0.1:${KEILA_PORT:-4000}:4000"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - keila-user-content:/opt/app/user-content
+    networks:
+      - backend
+      - edge
+
+networks:
+  backend:
+    internal: true
+  edge:
+
+volumes:
+  keila-postgres:
+  keila-user-content:

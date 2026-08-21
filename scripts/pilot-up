@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_dir"
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required but was not found." >&2
+  exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is installed but is not running." >&2
+  exit 1
+fi
+
+keila_source_dir="$repo_dir/.cache/keila"
+keila_commit="6fa09dce28e2a67dcfc14c5526588b53477ba9ed"
+
+if [[ ! -d "$keila_source_dir/.git" ]]; then
+  mkdir -p "$repo_dir/.cache"
+  git clone --branch v0.30.2 --depth 1 \
+    https://github.com/pentacent/keila.git "$keila_source_dir"
+fi
+
+actual_keila_commit="$(git -C "$keila_source_dir" rev-parse HEAD)"
+if [[ "$actual_keila_commit" != "$keila_commit" ]]; then
+  echo "Keila source is not the approved v0.30.2 commit." >&2
+  echo "Expected: $keila_commit" >&2
+  echo "Actual:   $actual_keila_commit" >&2
+  exit 1
+fi
+
+if ! git -C "$keila_source_dir" diff --quiet || \
+   ! git -C "$keila_source_dir" diff --cached --quiet; then
+  echo "Keila source has local modifications; refusing to build." >&2
+  exit 1
+fi
+
+if [[ ! -f .env ]]; then
+  umask 077
+  postgres_password="$(openssl rand -hex 32)"
+  secret_key_base="$(openssl rand -hex 64)"
+  keila_password="$(openssl rand -hex 24)"
+  mailpit_password="$(openssl rand -hex 24)"
+
+  printf '%s\n' \
+    "POSTGRES_PASSWORD=${postgres_password}" \
+    "SECRET_KEY_BASE=${secret_key_base}" \
+    "KEILA_USER=admin@arkova.local" \
+    "KEILA_PASSWORD=${keila_password}" \
+    "MAILPIT_PASSWORD=${mailpit_password}" \
+    "KEILA_PORT=4000" \
+    "MAILPIT_UI_PORT=8025" > .env
+  chmod 600 .env
+  echo "Created local-only credentials in $repo_dir/.env"
+fi
+
+docker compose config --quiet
+docker compose pull postgres mailpit
+docker compose build --pull keila
+docker compose up --detach --wait --wait-timeout 180
+
+for _ in $(seq 1 60); do
+  if curl --fail --silent --show-error http://127.0.0.1:4000/ >/dev/null; then
+    echo "Keila is ready at http://127.0.0.1:4000"
+    echo "Mailpit is ready at http://127.0.0.1:8025"
+    echo "Login email: admin@arkova.local"
+    echo "The password remains in .env and was not printed."
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "Keila did not become ready in time. Recent logs:" >&2
+docker compose logs --tail 80 keila >&2
+exit 1
