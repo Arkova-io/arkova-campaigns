@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_dir"
+
+docker compose ps
+
+if curl --fail --silent http://127.0.0.1:4000/ >/dev/null; then
+  echo "Keila web interface: ready"
+else
+  echo "Keila web interface: unavailable"
+fi
+
+if curl --fail --silent http://127.0.0.1:8025/api/v1/info >/dev/null; then
+  echo "Mailpit test mailbox: ready"
+else
+  echo "Mailpit test mailbox: unavailable"
+fi

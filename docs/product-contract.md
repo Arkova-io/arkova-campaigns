@@ -1,5 +1,7 @@
 # Product contract
 
+> This is the future production contract, not the current local pilot. The pilot runs stock Keila with a local test mailbox and deliberately excludes the gateway, SES, customer data, and production sending.
+
 ## Outcome
 
 An authorized person or agent can manage consent-aware contacts and segments, prepare and test an on-brand campaign, obtain approval, schedule it, and inspect delivery health without Mailchimp.
